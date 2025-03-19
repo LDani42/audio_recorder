@@ -25,9 +25,10 @@ st.write("Record audio from your microphone and save it as a WAV file.")
 RATE = 44100  # Sample rate
 CHANNELS = 1  # Mono audio
 
-# Create a folder for recordings if it doesn't exist
-if not os.path.exists("recordings"):
-    os.makedirs("recordings")
+# Use in-memory storage for Streamlit Cloud compatibility
+# We won't create physical directories as Streamlit Cloud has limited write permissions
+if 'recordings' not in st.session_state:
+    st.session_state.recordings = {}
 
 # Initialize session state
 if 'audio_buffer' not in st.session_state:
@@ -44,19 +45,26 @@ if 'audio_data_display' not in st.session_state:
 # Create placeholder for visualization
 viz_placeholder = st.empty()
 
-# Function to save audio buffer to WAV file
-def save_audio_buffer(audio_frames, filename, sample_rate=RATE, channels=CHANNELS):
+# Function to save audio buffer to in-memory WAV file
+def save_audio_buffer(audio_frames, filename_key, sample_rate=RATE, channels=CHANNELS):
+    import io
+    
     # Convert to numpy array
     audio_data = np.concatenate(audio_frames)
     
-    # Save as WAV file
-    with wave.open(filename, 'wb') as wf:
+    # Save as in-memory WAV file
+    wav_buffer = io.BytesIO()
+    with wave.open(wav_buffer, 'wb') as wf:
         wf.setnchannels(channels)
         wf.setsampwidth(2)  # 2 bytes for 'int16'
         wf.setframerate(sample_rate)
         wf.writeframes(audio_data.tobytes())
     
-    return filename
+    # Store the WAV data in session state
+    wav_buffer.seek(0)  # Reset buffer position to start
+    st.session_state.recordings[filename_key] = wav_buffer.getvalue()
+    
+    return filename_key
 
 # Audio callback function
 def audio_frame_callback(frame):
@@ -145,15 +153,15 @@ def stop_recording():
     if st.session_state.recording:
         st.session_state.recording = False
         
-        # Generate filename with timestamp
+        # Generate filename key with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"recordings/audio_{timestamp}.wav"
+        filename_key = f"audio_{timestamp}"
         
-        # Save audio to file if we have data
+        # Save audio to in-memory storage if we have data
         if len(st.session_state.audio_buffer) > 0:
             st.session_state.recorded_file = save_audio_buffer(
                 st.session_state.audio_buffer, 
-                filename
+                filename_key
             )
 
 # RTC Configuration (using Google's STUN servers)
@@ -202,21 +210,23 @@ if webrtc_ctx.state.playing and "viz_thread" not in st.session_state:
     st.session_state.viz_thread.start()
 
 # Display the recorded audio file
-if st.session_state.recorded_file and os.path.exists(st.session_state.recorded_file):
+if st.session_state.recorded_file and st.session_state.recorded_file in st.session_state.recordings:
     st.write("✅ Recording completed!")
-    st.write(f"📁 Saved as: {st.session_state.recorded_file}")
+    st.write(f"📁 Recording ID: {st.session_state.recorded_file}")
+    
+    # Get the audio data from session state
+    audio_data = st.session_state.recordings[st.session_state.recorded_file]
     
     # Add audio playback
-    st.audio(st.session_state.recorded_file)
+    st.audio(audio_data, format="audio/wav")
     
     # Add download button
-    with open(st.session_state.recorded_file, "rb") as file:
-        btn = st.download_button(
-            label="Download Recording",
-            data=file,
-            file_name=os.path.basename(st.session_state.recorded_file),
-            mime="audio/wav"
-        )
+    btn = st.download_button(
+        label="Download Recording",
+        data=audio_data,
+        file_name=f"{st.session_state.recorded_file}.wav",
+        mime="audio/wav"
+    )
 
 # App footer
 st.write("---")
