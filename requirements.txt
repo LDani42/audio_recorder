@@ -1,4 +1,5 @@
-streamlit 
-numpy 
-pyaudio 
-matplotlib
+streamlit==1.32.0
+streamlit-webrtc==0.47.1
+numpy==1.26.3
+matplotlib==3.8.2
+av==11.0.0
